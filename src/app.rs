@@ -11,6 +11,26 @@ pub struct PinballApp {
 
 impl PinballApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+
+        // Font Setup for Korean Support
+        let mut fonts = egui::FontDefinitions::default();
+        
+        // Load the font using include_bytes! (Embeds it in the WASM)
+        // Path is relative to this file (src/app.rs) -> ../assets/
+        fonts.font_data.insert(
+            "korean_font".to_owned(),
+            egui::FontData::from_static(include_bytes!("../assets/fonts/ChungBuk_70_Regular.ttf")),
+        );
+
+        // Put my font first (highest priority) for Proportional text:
+        fonts.families.entry(egui::FontFamily::Proportional).or_default()
+            .insert(0, "korean_font".to_owned());
+
+        // Put my font as last fallback for Monospace:
+        fonts.families.entry(egui::FontFamily::Monospace).or_default()
+            .push("korean_font".to_owned());
+
+        cc.egui_ctx.set_fonts(fonts);
         cc.egui_ctx.set_visuals(egui::Visuals::dark()); // Neon Dark Mode
         Self {
             state: GameState::new(),
