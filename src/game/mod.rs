@@ -15,6 +15,16 @@ pub struct Ball {
     pub color: [u8; 3], // RGB
 }
 
+#[derive(Clone, Copy)]
+pub struct Particle {
+    pub x: f32,
+    pub y: f32,
+    pub vx: f32,
+    pub vy: f32,
+    pub life: f32,
+    pub color: [u8; 3],
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum EditorTool {
     Pin,
@@ -38,7 +48,7 @@ pub struct GameState {
     pub balls: Vec<Ball>,
     pub finished_balls: Vec<FinishedBall>,
     pub winning_condition: WinningCondition,
-    pub current_map: maps::MapType,
+
     pub is_running: bool,
     pub edit_mode: bool,
     pub selected_tool: EditorTool,
@@ -48,6 +58,9 @@ pub struct GameState {
     // Editor State
     pub editor_drag_start: Option<(f32, f32)>,
     pub editor_grid_snap: bool,
+    
+    // Visual Effects
+    pub particles: Vec<Particle>,
 }
 
 impl GameState {
@@ -58,14 +71,13 @@ impl GameState {
         let width = 500.0; 
         let height = 800.0;
         
-        maps::create_map(&mut physics, width, height, maps::MapType::Default);
+        maps::create_map(&mut physics, width, height);
 
         Self {
             physics,
             balls: Vec::new(),
             finished_balls: Vec::new(),
             winning_condition: WinningCondition::Last,
-            current_map: maps::MapType::Default,
             is_running: false,
             edit_mode: false,
             selected_tool: EditorTool::Pin,
@@ -73,6 +85,7 @@ impl GameState {
             map_height: height,
             editor_drag_start: None,
             editor_grid_snap: true,
+            particles: Vec::new(),
         }
     }
 
@@ -196,7 +209,150 @@ impl GameState {
 
             self.physics.step();
             self.check_finished_balls();
+            self.handle_collisions();
+            self.spawn_trails(); // NEW: Trail Effect
+            self.update_particles();
         }
+    }
+    
+    fn spawn_trails(&mut self) {
+        let mut rng = rand::thread_rng();
+        // For each active ball, spawn a small trail particle
+        for ball in &self.balls {
+            if let Some(rb) = self.physics.rigid_body_set.get(ball.handle) {
+                let pos = rb.translation();
+                let vel = rb.linvel();
+                
+                // Only spawn if moving reasonable speed
+                if vel.magnitude_squared() > 10.0 {
+                    let particle = Particle {
+                        x: pos.x + rng.gen_range(-2.0..2.0),
+                        y: pos.y + rng.gen_range(-2.0..2.0),
+                        vx: -vel.x * 0.2, // Drags behind
+                        vy: -vel.y * 0.2,
+                        life: 0.3, // Short life
+                        color: [200, 200, 255], // Soft white/blue dust
+                    };
+                    self.particles.push(particle);
+                }
+            }
+        }
+    }
+
+    fn handle_collisions(&mut self) {
+        let events = self.physics.drain_collision_events();
+        for event in events {
+            if let CollisionEvent::Started(h1, h2, _flags) = event {
+                 let c1 = self.physics.collider_set.get(h1);
+                 let c2 = self.physics.collider_set.get(h2);
+                 
+                 let pos1 = c1.and_then(|c| c.parent()).and_then(|h| self.physics.rigid_body_set.get(h)).map(|rb| *rb.translation());
+                 // If static, collider might not have parent or RB, use collider translation
+                 let p1_final = pos1.unwrap_or_else(|| c1.map(|c| *c.translation()).unwrap_or(vector![0.0,0.0]));
+                 
+                 let pos2 = c2.and_then(|c| c.parent()).and_then(|h| self.physics.rigid_body_set.get(h)).map(|rb| *rb.translation());
+                 let p2_final = pos2.unwrap_or_else(|| c2.map(|c| *c.translation()).unwrap_or(vector![0.0,0.0]));
+
+                 let rest1 = c1.map(|c| c.restitution()).unwrap_or(0.5);
+                 let rest2 = c2.map(|c| c.restitution()).unwrap_or(0.5);
+                 let intensity = rest1.max(rest2);
+
+                 // Determine 'Type' based on user_data
+                 // 1=Red Pin, 2=Green Pin, 3=Orange Bumper, 10=Spinner, 99=Goal
+                 // Ball has 0 usually.
+                 let u1 = c1.map(|c| c.user_data).unwrap_or(0);
+                 let u2 = c2.map(|c| c.user_data).unwrap_or(0);
+                 
+                 // Pick the interesting user_data (non-zero)
+                 let type_id = if u1 > 0 { u1 } else { u2 };
+
+                 let cx = (p1_final.x + p2_final.x) / 2.0;
+                 let cy = (p1_final.y + p2_final.y) / 2.0;
+                 
+                 self.spawn_particles(cx, cy, intensity, type_id);
+            }
+        }
+    }
+    
+    fn spawn_particles(&mut self, x: f32, y: f32, intensity: f32, type_id: u128) {
+        let mut rng = rand::thread_rng();
+        
+        // Boost counts for "Flashy" feel
+        // Base 10.. max 80 for super hits
+        let base_count = 10.0;
+        let count = ((base_count + intensity * 15.0).clamp(10.0, 100.0)) as usize;
+        
+        for _ in 0..count {
+            let angle: f32 = rng.gen_range(0.0..6.28);
+            
+            // Speed boost
+            let speed_mult = intensity.clamp(0.8, 4.0);
+            let speed = rng.gen_range(60.0..200.0) * speed_mult;
+            
+            let vx = angle.cos() * speed;
+            let vy = angle.sin() * speed;
+            let life = rng.gen_range(0.4..1.0); // Longer life
+            
+            // Color Logic based on Type ID
+            let color = match type_id {
+                1 => { // Red Super Pin - Fiery
+                     match rng.gen_range(0..3) {
+                         0 => [255, 50, 50], // Red
+                         1 => [255, 150, 0], // Orange
+                         _ => [255, 255, 200], // White Hot
+                     }
+                },
+                2 => { // Green Pin - Matrix/Neon Green
+                     match rng.gen_range(0..3) {
+                         0 => [50, 255, 50], 
+                         1 => [150, 255, 150], 
+                         _ => [200, 255, 200], 
+                     }
+                },
+                3 => { // Orange Bumper - Explosive
+                     match rng.gen_range(0..3) {
+                         0 => [255, 100, 0], // Orange
+                         1 => [255, 200, 0], // Gold
+                         _ => [255, 255, 255], 
+                     }
+                },
+                10 => { // Spinner - Electric Blue/Cyan
+                     match rng.gen_range(0..3) {
+                         0 => [0, 200, 255], // Cyan
+                         1 => [100, 100, 255], // Blue
+                         _ => [200, 255, 255], // White Cyan
+                     }
+                },
+                99 => { // Goal - Rainbow/Victory
+                     [rng.gen(), rng.gen(), rng.gen()]
+                },
+                _ => { // Default / Wall / Ball-on-Ball
+                    // Use intensity to decide
+                    if intensity > 2.0 {
+                        [200, 200, 255] // Bright Blue-White
+                    } else {
+                        // Sparky gray/blue
+                        let v = rng.gen_range(150..255);
+                        [v, v, 255]
+                    }
+                }
+            };
+            
+            self.particles.push(Particle {
+                x, y, vx, vy, life, color
+            });
+        }
+    }
+    
+    fn update_particles(&mut self) {
+        let dt = 1.0 / 60.0; // estim
+        for p in &mut self.particles {
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+            p.vy -= 200.0 * dt; // Gravity
+            p.life -= dt;
+        }
+        self.particles.retain(|p| p.life > 0.0);
     }
 
     fn check_finished_balls(&mut self) {
@@ -255,33 +411,80 @@ impl GameState {
 
     pub fn spawn_event_obstacle(&mut self) {
         let mut rng = rand::thread_rng();
-        let x_offset = rng.gen_range(-self.map_width/2.0 + 20.0 .. self.map_width/2.0 - 20.0);
+        let x_offset = rng.gen_range(-self.map_width/2.0 + 40.0 .. self.map_width/2.0 - 40.0);
         let y_start = self.map_height / 2.0 - 50.0; 
 
-        // Spawn a dynamic box (chocolate/crate)
+        // 1. Random Neon Color (High Saturation/Brightness)
+        // HSV to RGB conversion simplified or just pick vibrant mix
+        let hue = rng.gen_range(0.0f32..360.0f32);
+        let s = 1.0f32;
+        let v = 1.0f32;
+        
+        let c = v * s;
+        let x = c * (1.0 - ((hue / 60.0) % 2.0 - 1.0).abs());
+        let m = v - c;
+        
+        let (r_f, g_f, b_f) = if hue < 60.0 { (c, x, 0.0) }
+        else if hue < 120.0 { (x, c, 0.0) }
+        else if hue < 180.0 { (0.0, c, x) }
+        else if hue < 240.0 { (0.0, x, c) }
+        else if hue < 300.0 { (x, 0.0, c) }
+        else { (c, 0.0, x) };
+        
+        let r = ((r_f + m) * 255.0) as u128;
+        let g = ((g_f + m) * 255.0) as u128;
+        let b = ((b_f + m) * 255.0) as u128;
+        
+        // 2. Random Shape: 0=Circle, 1=Square, 2=Triangle, 3=Star
+        let shape_id: u128 = rng.gen_range(0..4);
+        
+        // UserData Packing:
+        // Bit 64: Flag (1)
+        // Bits 48-55: R
+        // Bits 40-47: G
+        // Bits 32-39: B
+        // Bits 0-31: Shape ID
+        let flag: u128 = 1 << 64;
+        let user_data = flag | (r << 48) | (g << 40) | (b << 32) | shape_id;
+
+        // Physics Body
         let rigid_body = RigidBodyBuilder::dynamic()
             .translation(vector![x_offset, y_start])
             .rotation(rng.gen_range(0.0..3.14))
             .build();
         let handle = self.physics.rigid_body_set.insert(rigid_body);
         
-        // Random size
-        let w = rng.gen_range(10.0..30.0);
-        let h = rng.gen_range(10.0..30.0);
+        let size = rng.gen_range(15.0..25.0);
         
-        let collider = ColliderBuilder::cuboid(w, h)
-            .restitution(0.3)
-            .density(2.0) // Heavier
-            .collision_groups(InteractionGroups::new(GROUP_MAP, GROUP_BALL))
-            .build();
+        let collider = match shape_id {
+            0 => { // Circle
+                ColliderBuilder::ball(size)
+            },
+            1 => { // Square
+                ColliderBuilder::cuboid(size, size)
+            },
+            2 => { // Triangle
+                // Equilateral triangle
+                let h = size * 3.0f32.sqrt() / 2.0;
+                let p1 = point![0.0, -h * 2.0 / 3.0];
+                let p2 = point![-size, h / 3.0];
+                let p3 = point![size, h / 3.0];
+                ColliderBuilder::triangle(p1, p2, p3)
+            },
+            _ => { // Star (3)
+                // Physics Proxy: Circle for smooth rolling, or maybe a Hexagon?
+                // Let's use a Ball for simplicity and good bouncing behavior.
+                // Visually it will be a star.
+                ColliderBuilder::ball(size)
+            }
+        }
+        .restitution(0.6)
+        .density(1.5)
+        .collision_groups(InteractionGroups::new(GROUP_MAP, GROUP_BALL))
+        .user_data(user_data)
+        .build();
             
         self.physics.collider_set.insert_with_parent(collider, handle, &mut self.physics.rigid_body_set);
-        
-        // We don't track obstacles in 'balls' list, they are just physics objects. 
-        // Although we might want to clean them up if they fall out.
-        // For now, let them stay or fall forever (Rapier handles them).
-        // Actually, if they fall out, they just fall forever in void, which is fine for now but waste resources.
-        // Ideally we track them in a separate list or tag them.
     }
 
     pub fn reset_map(&mut self) {
@@ -291,7 +494,7 @@ impl GameState {
         // Re-create map
         let width = self.map_width;
         let height = self.map_height;
-        maps::create_map(&mut self.physics, width, height, self.current_map);
+        maps::create_map(&mut self.physics, width, height);
         self.is_running = false;
     }
 
@@ -315,19 +518,7 @@ impl GameState {
     }
 
 
-    pub fn nudge(&mut self) {
-        let mut rng = rand::thread_rng();
-        for ball in &self.balls {
-            if let Some(rb) = self.physics.rigid_body_set.get_mut(ball.handle) {
-                // Wake up just in case
-                rb.wake_up(true);
-                // Apply random impulse: mostly up + random side
-                let x_impulse = rng.gen_range(-20.0..20.0);
-                let y_impulse = rng.gen_range(10.0..30.0); // Upward kick
-                rb.apply_impulse(vector![x_impulse, y_impulse], true);
-            }
-        }
-    }
+
 
 
 }

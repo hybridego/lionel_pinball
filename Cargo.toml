@@ -16,6 +16,8 @@ console_error_panic_hook = "0.1"
 wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window", "Document", "HtmlCanvasElement", "Element"] }
 rand = "0.8.5"
+crossbeam = "0.8.4"
+crossbeam-channel = "0.5.15"
 
 [web]
 # No special configuration needed here usually for trunk, but sometimes good to have.

@@ -1,4 +1,5 @@
 use eframe::egui;
+use rapier2d::prelude::point; // Import point macro
 use crate::game::GameState;
 
 
@@ -10,7 +11,7 @@ pub struct PinballApp {
 
 impl PinballApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        cc.egui_ctx.set_visuals(egui::Visuals::light());
+        cc.egui_ctx.set_visuals(egui::Visuals::dark()); // Neon Dark Mode
         Self {
             state: GameState::new(),
             input_text: "Alice*5\nBob*3".to_owned(),
@@ -61,31 +62,13 @@ impl eframe::App for PinballApp {
                 self.state.reset_game();
             }
             
-            if ui.button("Nudge / Shake (Space)").clicked() {
-                self.state.nudge();
-            }
+
             
             if ui.button("Trigger Event (Drop Object)").clicked() {
                 self.state.spawn_event_obstacle();
             }
 
-            if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
-                self.state.nudge();
-            }
-            
-            ui.separator();
-            ui.label("Map Selection:");
-            egui::ComboBox::from_label("Choose Map")
-                .selected_text(match self.state.current_map {
-                    crate::game::maps::MapType::Default => "Default (Pins)",
-                    crate::game::maps::MapType::ZigZag => "ZigZag Plates",
-                    crate::game::maps::MapType::Pachinko => "Pachinko (Dense)",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut self.state.current_map, crate::game::maps::MapType::Default, "Default (Pins)");
-                    ui.selectable_value(&mut self.state.current_map, crate::game::maps::MapType::ZigZag, "ZigZag Plates");
-                    ui.selectable_value(&mut self.state.current_map, crate::game::maps::MapType::Pachinko, "Pachinko (Dense)");
-                });
+
             
             if ui.button("New Map (Randomize)").clicked() {
                 self.state.reset_map();
@@ -141,6 +124,9 @@ impl eframe::App for PinballApp {
         // Main Canvas
         egui::CentralPanel::default().show(ctx, |ui| {
             let (response, painter) = ui.allocate_painter(ui.available_size(), egui::Sense::click_and_drag());
+            
+            // Dark Background for Neon Contrast
+            painter.rect_filled(response.rect, 0.0, egui::Color32::from_rgb(10, 10, 15));
             
             // Coordinate mapping
             // Physics world: 0,0 is center. Y is up.
@@ -219,38 +205,126 @@ impl eframe::App for PinballApp {
                 // Check shape type
                 if let Some(ball) = shape.as_ball() {
                     let radius = ball.radius;
-                    let color = if collider.user_data == 1 {
-                        egui::Color32::from_rgb(255, 100, 100) // Reddish/Salmon for Super Pin
+                  // Color logic
+                    let mut is_event = false;
+                    let mut shape_id = 0;
+                    
+                    let color = if (collider.user_data >> 64) & 1 == 1 {
+                        is_event = true;
+                        let r = (collider.user_data >> 48) as u8;
+                        let g = (collider.user_data >> 40) as u8;
+                        let b = (collider.user_data >> 32) as u8;
+                        shape_id = collider.user_data as u8; 
+                        egui::Color32::from_rgb(r, g, b)
+                    } else if collider.user_data == 1 {
+                        egui::Color32::from_rgb(255, 100, 100) 
                     } else if collider.user_data == 2 {
-                        egui::Color32::GREEN // Green for Medium Pin
+                        egui::Color32::GREEN 
                     } else if collider.user_data == 3 {
-                        egui::Color32::from_rgb(255, 165, 0) // Orange for Funnel Bumper
+                        egui::Color32::from_rgb(255, 165, 0) 
                     } else if collider.user_data == 99 {
-                        egui::Color32::from_rgb(0, 255, 255) // Cyan for Goal
+                        egui::Color32::from_rgb(0, 255, 255) 
                     } else {
                         egui::Color32::GRAY
                     };
                     
-                    painter.circle_filled(
-                        to_screen(translation.x, translation.y), 
-                        radius, 
-                        color
-                    );
+                    // Glow Effect
+                    let glow_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 100);
+                    
+                    if is_event && shape_id == 3 {
+                        // DRAW STAR
+                        // Center: translation.x, translation.y
+                        // Outer Radius: ball.radius
+                        // Inner Radius: ball.radius * 0.5
+                        // 5 points
+                        let cx = translation.x;
+                        let cy = translation.y;
+                        let outer_r = radius;
+                        let inner_r = radius * 0.4;
+                        let rotation = collider.rotation().angle();
+                        
+                        let mut points = Vec::new();
+                        for i in 0..10 {
+                            let angle = rotation + (i as f32 * std::f32::consts::PI / 5.0) - std::f32::consts::PI / 2.0; 
+                            let r = if i % 2 == 0 { outer_r } else { inner_r };
+                            let px = cx + r * angle.cos();
+                            let py = cy + r * angle.sin();
+                            points.push(to_screen(px, py));
+                        }
+                        
+                        painter.add(egui::Shape::convex_polygon(points, color, egui::Stroke::new(2.0, glow_color)));
+                        
+                    } else {
+                        // DRAW BALL / CIRCLE
+                        painter.circle_filled(
+                            to_screen(translation.x, translation.y),
+                            radius * 2.0, // Larger glow
+                            glow_color
+                        );
+                        painter.circle_filled(
+                            to_screen(translation.x, translation.y), 
+                            radius, 
+                            color
+                        );
+                    }
                 } else if let Some(cuboid) = shape.as_cuboid() {
                      let half_extents = cuboid.half_extents;
                      let rotation = collider.rotation();
                      let angle = rotation.angle();
                      
                      // Color logic based on user_data
-                     let color = if collider.user_data == 1 {
+                     // Color logic based on user_data
+                     // Color logic based on user_data
+                     // Color logic based on user_data
+                     let color = if (collider.user_data >> 64) & 1 == 1 {
+                        let r = (collider.user_data >> 48) as u8;
+                        let g = (collider.user_data >> 40) as u8;
+                        let b = (collider.user_data >> 32) as u8;
+                        egui::Color32::from_rgb(r, g, b)
+                     } else if collider.user_data == 1 {
                         egui::Color32::from_rgb(255, 100, 100) // Red
                      } else if collider.user_data == 3 {
                         egui::Color32::from_rgb(255, 165, 0) // Orange
                      } else if collider.user_data == 99 {
                         egui::Color32::from_rgb(0, 255, 255) // Cyan for Goal
-                     } else {
+                      } else if collider.user_data == 10 {
+                        // Spinner Neon - Color based on speed and size
+                        let mut speed = 0.0;
+                         if let Some(parent_h) = collider.parent() {
+                            if let Some(rb) = self.state.physics.rigid_body_set.get(parent_h) {
+                                speed = rb.angvel().abs();
+                            }
+                        }
+
+                        // Size Check (Small vs Large)
+                        // Vertical blade created with Y being the long axis (length/2)
+                        // Small: length 40 (half 20). Large: length 80 (half 40).
+                        let is_large = cuboid.half_extents.y.max(cuboid.half_extents.x) > 30.0;
+                        
+                        // Speed Factor (0.0 to 1.0) based on max expected speed ~5.0 + Pulse Effect
+                        let time = ctx.input(|i| i.time);
+                        let pulse = (time * 10.0).sin().abs() as f32 * 0.2; // Small pulse
+                        let t = (speed / 5.0).clamp(0.0, 1.0) + pulse;
+                        let t = t.clamp(0.0, 1.0);
+
+                        if is_large {
+                            // Large: Blue -> Cyan (Speed increases brightness)
+                            // Base: Deep Blue -> Target: Bright Cyan
+                            let r = (0.0 + 50.0 * t) as u8;
+                            let g = (50.0 + 205.0 * t) as u8;
+                            let b = (200.0 + 55.0 * t) as u8;
+                             egui::Color32::from_rgb(r, g, b)
+                        } else {
+                             // Small: Orange -> Yellow/White
+                             // Base: Orange -> Target: Yellowish
+                             let r = 255;
+                             let g = (100.0 + 155.0 * t) as u8;
+                             let b = (0.0 + 150.0 * t) as u8; // Whiten a bit at high speed
+                             egui::Color32::from_rgb(r, g, b)
+                        }
+                      } else {
                         egui::Color32::DARK_GRAY
-                     };
+                      };
                      
                      // If no rotation, draw aligned rect
                      if angle.abs() < 0.001 {
@@ -261,41 +335,75 @@ impl eframe::App for PinballApp {
                              0.0, 
                              color
                          );
+                         
+                         // Glow for Axis-Aligned Walls
+                         let glow_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 50);
+                         painter.rect_stroke(
+                            egui::Rect::from_min_max(rect_min, rect_max),
+                            2.0,
+                            egui::Stroke::new(4.0, glow_color)
+                         );
                      } else {
                          // Rotated rect
+                         let mut points = Vec::new();
                          // Local corners: (+x,+y), (-x,+y), (-x,-y), (+x,-y)
                          // But Rapier 2D cuboid is half_extents
                          let hx = half_extents.x;
                          let hy = half_extents.y;
-                         
-                         // Rotate points manually
-                         let cos_a = angle.cos();
-                         let sin_a = angle.sin();
-                         
-                         let rotate = |lx: f32, ly: f32| -> (f32, f32) {
-                             (lx * cos_a - ly * sin_a, lx * sin_a + ly * cos_a)
-                         };
-                         
-                         // Corners in local frame relative to center, then translated
                          let corners = [
-                             (hx, hy),
-                             (-hx, hy),
-                             (-hx, -hy),
-                             (hx, -hy),
+                             point![-hx, -hy],
+                             point![hx, -hy],
+                             point![hx, hy],
+                             point![-hx, hy],
                          ];
                          
-                         let points: Vec<egui::Pos2> = corners.iter().map(|(lx, ly)| {
-                             let (rx, ry) = rotate(*lx, *ly);
-                             to_screen(translation.x + rx, translation.y + ry)
-                         }).collect();
-                         
-                         painter.add(egui::Shape::convex_polygon(
-                             points, 
-                             color, 
-                             egui::Stroke::NONE
-                         ));
+                         let transform = collider.position();
+                         for p in corners {
+                             let world_p = transform * p;
+                             points.push(to_screen(world_p.x, world_p.y));
+                         }
+
+                         let glow_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 50);
+                         painter.add(egui::Shape::convex_polygon(points, color, egui::Stroke::new(2.0, glow_color)));
                      }
+                } else if let Some(tri) = shape.as_triangle() {
+                    // Triangle Rendering
+                     let color = if (collider.user_data >> 64) & 1 == 1 {
+                        let r = (collider.user_data >> 48) as u8;
+                        let g = (collider.user_data >> 40) as u8;
+                        let b = (collider.user_data >> 32) as u8;
+                        egui::Color32::from_rgb(r, g, b)
+                     } else {
+                        egui::Color32::YELLOW // Fallback
+                     };
+                     
+                     let a = tri.a;
+                     let b = tri.b;
+                     let c = tri.c;
+                     
+                     let transform = collider.position();
+                     let p1 = transform * a;
+                     let p2 = transform * b;
+                     let p3 = transform * c;
+                     
+                     let pts = vec![
+                         to_screen(p1.x, p1.y),
+                         to_screen(p2.x, p2.y),
+                         to_screen(p3.x, p3.y),
+                     ];
+                     
+                     let glow_color = egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 50);
+                     painter.add(egui::Shape::convex_polygon(pts, color, egui::Stroke::new(2.0, glow_color)));
                 }
+            }
+            
+            // Particles
+            for p in &self.state.particles {
+                let pos = to_screen(p.x, p.y);
+                let alpha = (p.life * 255.0).clamp(0.0, 255.0) as u8;
+                let color = egui::Color32::from_rgba_unmultiplied(p.color[0], p.color[1], p.color[2], alpha);
+                
+                painter.circle_filled(pos, 2.0, color);
             }
 
             // Draw Balls
@@ -306,11 +414,19 @@ impl eframe::App for PinballApp {
                     let screen_pos = to_screen(pos.x, pos.y);
                     let color = egui::Color32::from_rgb(ball.color[0], ball.color[1], ball.color[2]);
                     
+                    // Ball Glow
+                    let glow_color = egui::Color32::from_rgba_unmultiplied(ball.color[0], ball.color[1], ball.color[2], 128);
+                    painter.circle_filled(
+                        screen_pos,
+                        12.0,
+                        glow_color
+                    );
+                    
                     painter.circle(
                         screen_pos, 
                         8.0, 
                         color, 
-                        egui::Stroke::new(1.5, egui::Color32::BLACK) // Outline
+                        egui::Stroke::new(1.5, egui::Color32::WHITE) // Bright Outline
                     );
                     
                     // Adaptive Text Color

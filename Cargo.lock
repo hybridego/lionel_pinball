@@ -2479,6 +2479,8 @@ name = "pinball_gacha"
 version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
+ "crossbeam",
+ "crossbeam-channel",
  "eframe",
  "egui",
  "getrandom 0.2.16",

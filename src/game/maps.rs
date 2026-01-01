@@ -2,25 +2,17 @@ use rapier2d::prelude::*;
 use crate::game::physics::PhysicsEngine;
 use rand::Rng;
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum MapType {
-    Default,
-    ZigZag,
-    Pachinko,
-}
 
-pub fn create_map(physics: &mut PhysicsEngine, width: f32, height: f32, map_type: MapType) {
+
+pub fn create_map(physics: &mut PhysicsEngine, width: f32, height: f32) {
     // Walls
     create_walls(physics, width, height);
 
     // Bottom Area Obstacles (Seesaws & Bumpers)
     create_bottom_obstacles(physics, width, height);
     
-    match map_type {
-        MapType::Default => create_pins(physics, width, height),
-        MapType::ZigZag => create_zigzag(physics, width, height),
-        MapType::Pachinko => create_pachinko(physics, width, height),
-    }
+    // Default Pins
+    create_pins(physics, width, height);
 }
 
 pub fn create_walls(physics: &mut PhysicsEngine, width: f32, height: f32) {
@@ -86,6 +78,7 @@ pub fn create_walls(physics: &mut PhysicsEngine, width: f32, height: f32) {
             .restitution(restitution) // Bouncy
             .friction(0.0)
             .user_data(user_data)
+            .active_events(ActiveEvents::COLLISION_EVENTS)
             .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
             .build();
         physics.collider_set.insert(collider);
@@ -100,6 +93,7 @@ pub fn create_walls(physics: &mut PhysicsEngine, width: f32, height: f32) {
             .restitution(restitution_right)
             .friction(0.0)
             .user_data(user_data_right)
+            .active_events(ActiveEvents::COLLISION_EVENTS)
             .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
             .build();
         physics.collider_set.insert(collider);
@@ -126,14 +120,24 @@ pub fn create_walls(physics: &mut PhysicsEngine, width: f32, height: f32) {
     // We want a clear funnel: \ / leading to a narrow chute | |
     // AND it must be perfectly connected to the side walls so nothing escapes.
     
-    let funnel_height = 100.0;
-    let chute_height = 80.0;
-    let exit_gap = 22.0;
+
+    let chute_height = 40.0; // Shortened from 80.0
+    let exit_gap = 22.0; // Slightly narrower? Or keep same.
     
     // Y Position:
     // Bottom of chute = absolute bottom + margin
     // Top of chute / Bottom of Funnel = Bottom of chute + chute_height
     // Top of Funnel = Bottom of Funnel + funnel_height
+    // To make funnel steeper, we want more vertical distance for the same horizontal change.
+    // If we shorten chute, the bottom of funnel drops.
+    // So if we keep the "Top of Funnel" fixed or increase its height, it gets steeper.
+    // Old funnel_height was 100.
+    // Old chute_top_y = bottom_y + 80.
+    // Old funnel_top_y = bottom_y + 80 + 100 = bottom_y + 180.
+    // New chute_top_y = bottom_y + 40.
+    // To keep funnel_top_y at bottom_y + 180 (same top start), we need funnel_height = 140.
+    // This effectively extends the funnel DOWNWARDS into the space freed by the shorter chute.
+    let funnel_height = 140.0;
     
     let bottom_y = -height / 2.0 + 20.0;
     let chute_top_y = bottom_y + chute_height;
@@ -297,86 +301,10 @@ pub fn create_pins(physics: &mut PhysicsEngine, width: f32, height: f32) {
                 .restitution(restitution)
                 .friction(0.0)
                 .user_data(user_data)
+                .active_events(ActiveEvents::COLLISION_EVENTS)
                 .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
                 .build();
-             physics.collider_set.insert(collider);
-        }
-    }
-}
 
-pub fn create_zigzag(physics: &mut PhysicsEngine, width: f32, height: f32) {
-    let rows = 7;
-    let spacing_y = (height - 250.0) / rows as f32; // Reserve space for funnel
-    let plate_width = width * 0.55;
-    let mut rng = rand::thread_rng();
-    
-    for r in 0..rows {
-        let is_left = r % 2 == 0;
-        let x = if is_left { -width / 2.0 + plate_width / 2.0 } else { width / 2.0 - plate_width / 2.0 };
-        let y = height / 2.0 - 150.0 - (r as f32 * spacing_y);
-        
-        // Tilt with some random variation
-        let base_angle = if is_left { -0.3 } else { 0.3 };
-        let random_tilt = rng.gen_range(-0.1..0.1);
-        
-        let collider = ColliderBuilder::cuboid(plate_width / 2.0, 5.0)
-            .translation(vector![x, y])
-            .rotation(base_angle + random_tilt)
-            .restitution(0.5)
-            .friction(0.0)
-            .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
-            .build();
-        physics.collider_set.insert(collider);
-        
-        // Add a "Spinner" or obstacle in the middle occasionally
-        if r % 2 != 0 {
-             create_spinner(physics, 0.0, y - spacing_y / 2.0, 50.0, 3.0);
-        }
-    }
-}
-
-pub fn create_pachinko(physics: &mut PhysicsEngine, width: f32, height: f32) {
-    // Dense pins
-    let rows = 20;
-    let cols = 20;
-    let pin_radius = 3.0;
-    
-    let margin = 50.0;
-    let grid_width = width - 2.0 * margin;
-
-    let spacing_x = grid_width / (cols - 1) as f32;
-    let spacing_y = (height / 2.0) / rows as f32;
-    
-    for r in 0..rows {
-        for c in 0..cols {
-             let x = -grid_width / 2.0 + (c as f32 * spacing_x) + if r % 2 == 0 { 0.0 } else { spacing_x / 2.0 };
-              if x.abs() > grid_width / 2.0 + 10.0 { continue; }
-              
-             let y = height / 2.0 - 100.0 - (r as f32 * spacing_y);
-
-             // Randomly skip some to make paths
-             if (r * c) % 7 == 0 { continue; }
-
-             // Let's use rng.
-             let mut rng = rand::thread_rng();
-             
-             // Pin Type Logic
-             let roll = rng.gen_range(0..100);
-             let (restitution, user_data) = if roll < 10 {
-                 (5.0, 1) // Red Super Pin (10%)
-             } else if roll < 20 {
-                 (2.5, 2) // Green Medium Pin (10%)
-             } else {
-                 (0.8, 0) // Normal
-             };
-
-             let collider = ColliderBuilder::ball(pin_radius)
-                .translation(vector![x, y])
-                .restitution(restitution)
-                .friction(0.0)
-                .user_data(user_data)
-                .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
-                .build();
              physics.collider_set.insert(collider);
         }
     }
@@ -399,15 +327,17 @@ pub fn create_spinner(physics: &mut PhysicsEngine, x: f32, y: f32, length: f32, 
         .restitution(0.5)
         .density(2.0)
         .friction(0.0)
+        .user_data(10) // Special ID for Spinner Neon
         .collision_groups(InteractionGroups::new(super::GROUP_SPINNER, super::GROUP_BALL)) // Spinner hits ONLY balls
         .build();
     physics.collider_set.insert_with_parent(collider, blade_handle, &mut physics.rigid_body_set);
     
-    // Cross blade
+    // Cross blade (Vertical if first is horizontal)
     let collider2 = ColliderBuilder::cuboid(5.0, length / 2.0)
         .restitution(0.5)
         .density(2.0)
-        .friction(0.0)
+        .user_data(10) // Special ID for Spinner Neon
+        .active_events(ActiveEvents::COLLISION_EVENTS)
         .collision_groups(InteractionGroups::new(super::GROUP_SPINNER, super::GROUP_BALL)) 
         .build();
     physics.collider_set.insert_with_parent(collider2, blade_handle, &mut physics.rigid_body_set);
@@ -477,23 +407,25 @@ pub fn create_bottom_obstacles(physics: &mut PhysicsEngine, _width: f32, _height
     create_seesaw(physics, 0.0, -220.0, 80.0);
 
     // Funnel Bumpers (Elastic Pins on Funnel Walls)
-    // Funnel walls go from Side(-240, -200) to Chute(-16, -300).
-    // Midpoint approx: (-128, -250).
-    // Let's place them visually on the slopes.
+    // Funnel walls go from Side(-240, -200) to Chute(-16, -340).
+    // Midpoint approx Y = -270.
+    // X at Y=-270 is approx +/- 128.
     // Left Slope Bumper
     let collider = ColliderBuilder::ball(8.0)
-        .translation(vector![-120.0, -250.0]) 
+        .translation(vector![-128.0, -270.0]) 
         .restitution(3.0) // Requested 3.0x
         .user_data(3) // ID for Orange Color
+        .active_events(ActiveEvents::COLLISION_EVENTS)
         .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
         .build();
     physics.collider_set.insert(collider);
 
     // Right Slope Bumper
     let collider = ColliderBuilder::ball(8.0)
-        .translation(vector![120.0, -250.0])
+        .translation(vector![128.0, -270.0])
         .restitution(3.0)
         .user_data(3)
+        .active_events(ActiveEvents::COLLISION_EVENTS)
         .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
         .build();
     physics.collider_set.insert(collider);

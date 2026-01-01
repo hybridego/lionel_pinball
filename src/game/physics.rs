@@ -13,15 +13,19 @@ pub struct PhysicsEngine {
     pub ccd_solver: CCDSolver,
     pub physics_pipeline: PhysicsPipeline,
     pub query_pipeline: QueryPipeline,
-    
-    // To handle events/triggers
-    // pub event_handler: ChannelEventCollector, 
+    pub collision_recv: crossbeam_channel::Receiver<CollisionEvent>,
+    #[allow(dead_code)]
+    pub contact_force_recv: crossbeam_channel::Receiver<ContactForceEvent>,
+    pub event_handler: ChannelEventCollector,
 }
 
 impl PhysicsEngine {
     pub fn new() -> Self {
         let gravity = vector![0.0, -9.81];
-        
+        let (collision_send, collision_recv) = crossbeam_channel::unbounded();
+        let (contact_force_send, contact_force_recv) = crossbeam_channel::unbounded();
+        let event_handler = ChannelEventCollector::new(collision_send, contact_force_send);
+
         Self {
             gravity,
             integration_parameters: IntegrationParameters::default(),
@@ -35,6 +39,9 @@ impl PhysicsEngine {
             ccd_solver: CCDSolver::new(),
             physics_pipeline: PhysicsPipeline::new(),
             query_pipeline: QueryPipeline::new(),
+            event_handler,
+            collision_recv,
+            contact_force_recv,
         }
     }
 
@@ -52,7 +59,15 @@ impl PhysicsEngine {
             &mut self.ccd_solver,
             Some(&mut self.query_pipeline),
             &(),
-            &(),
+            &self.event_handler,
         );
+    }
+
+    pub fn drain_collision_events(&mut self) -> Vec<CollisionEvent> {
+        let mut events = Vec::new();
+        while let Ok(event) = self.collision_recv.try_recv() {
+            events.push(event);
+        }
+        events
     }
 }
