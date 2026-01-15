@@ -82,8 +82,8 @@ pub fn create_walls(physics: &mut PhysicsEngine, width: f32, height: f32) {
     // Wall Bumpers (Deflectors)
     // Small rotated boxes along the walls to kick balls back in
     let mut rng = rand::thread_rng();
-    for i in 0..6 {
-        let y = -200.0 + (i as f32) * 100.0;
+    for i in 2..6 {
+        let y = -250.0 + (i as f32) * 100.0;
 
         // Random restitution: 3.0 or 5.0
         // Random elasticity for wall bumpers (High to Extreme: 3-5)
@@ -466,6 +466,10 @@ pub fn create_bottom_obstacles(physics: &mut PhysicsEngine, _width: f32, _height
     // So the gap is roughly -120 to -280.
 
     // Seesaws
+    // New Upper Seesaws ( Cyan lines in user request)
+    create_seesaw(physics, -150.0, -100.0, 70.0);
+    create_seesaw(physics, 150.0, -100.0, 70.0);
+
     // Moved up to avoid blocking goal
     // Two top
     create_seesaw(physics, -80.0, -160.0, 70.0);
@@ -475,35 +479,33 @@ pub fn create_bottom_obstacles(physics: &mut PhysicsEngine, _width: f32, _height
     create_seesaw(physics, 0.0, -220.0, 80.0);
 
     // Funnel Bumpers (Elastic Pins on Funnel Walls)
-    // Funnel walls go from Side(-240, -200) to Chute(-16, -340).
-    // Midpoint approx Y = -270.
-    // X at Y=-270 is approx +/- 128.
+    // Increased to 2 per side (4 total) and doubled size (radius ~20.0)
+    // Coordinates calculated along the slope:
+    // Upper: (-160, -250) & (160, -250)
+    // Lower: (-80, -300) & (80, -300)
+
+    let bumper_configs = vec![
+        (-160.0, -250.0),
+        (-80.0, -300.0),
+        (160.0, -250.0),
+        (80.0, -300.0),
+        (195.0, -150.0),
+        (-195.0, -150.0),
+    ];
 
     let mut rng = rand::thread_rng();
 
-    // Left Slope Bumper
-    let level_left = rng.gen_range(3..=5);
-    let (restitution_left, user_data_left) = get_elasticity_props(level_left);
+    for (x, y) in bumper_configs {
+        let level = rng.gen_range(3..=5);
+        let (restitution, user_data) = get_elasticity_props(level);
 
-    let collider = ColliderBuilder::ball(10.4)
-        .translation(vector![-128.0, -270.0])
-        .restitution(restitution_left)
-        .user_data(user_data_left)
-        .active_events(ActiveEvents::COLLISION_EVENTS)
-        .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
-        .build();
-    physics.collider_set.insert(collider);
-
-    // Right Slope Bumper
-    let level_right = rng.gen_range(3..=5);
-    let (restitution_right, user_data_right) = get_elasticity_props(level_right);
-
-    let collider = ColliderBuilder::ball(10.4)
-        .translation(vector![128.0, -270.0])
-        .restitution(restitution_right)
-        .user_data(user_data_right)
-        .active_events(ActiveEvents::COLLISION_EVENTS)
-        .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
-        .build();
-    physics.collider_set.insert(collider);
+        let collider = ColliderBuilder::ball(13.0) // size doubled from 10.4
+            .translation(vector![x, y])
+            .restitution(restitution)
+            .user_data(user_data)
+            .active_events(ActiveEvents::COLLISION_EVENTS)
+            .collision_groups(InteractionGroups::new(super::GROUP_MAP, super::GROUP_BALL))
+            .build();
+        physics.collider_set.insert(collider);
+    }
 }

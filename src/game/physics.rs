@@ -21,7 +21,7 @@ pub struct PhysicsEngine {
 
 impl PhysicsEngine {
     pub fn new() -> Self {
-        let gravity = vector![0.0, -9.81];
+        let gravity = vector![0.0, -68.67];
         let (collision_send, collision_recv) = crossbeam_channel::unbounded();
         let (contact_force_send, contact_force_recv) = crossbeam_channel::unbounded();
         let event_handler = ChannelEventCollector::new(collision_send, contact_force_send);

@@ -206,7 +206,7 @@ impl GameState {
     pub fn update(&mut self, current_time: f64) {
         if self.is_running {
             // Safety Clamp: Limit max velocity to prevent physics explosions (tunneling/crashes)
-            let max_speed = 1500.0; // Reasonable limit for this map size
+            let max_speed = 3000.0; // Increased limit for higher gravity
             for (_handle, rb) in self.physics.rigid_body_set.iter_mut() {
                 if rb.is_dynamic() {
                     let vel = *rb.linvel();
