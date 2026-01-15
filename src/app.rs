@@ -1,6 +1,6 @@
 use crate::game::GameState;
 use eframe::egui;
-use rapier2d::prelude::point; // Import point macro
+use rapier2d::prelude::{point, vector}; // Import point and vector macros
 
 pub struct PinballApp {
     state: GameState,
@@ -292,9 +292,32 @@ impl eframe::App for PinballApp {
             // For now, let's just cheat and draw the known map boundaries or iterate if we can exposed iter
 
             // Let's iterate the collider set in physics
-            for (_handle, collider) in self.state.physics.collider_set.iter() {
+            for (handle, collider) in self.state.physics.collider_set.iter() {
                 let translation = collider.translation();
                 let shape = collider.shape();
+
+                // Flash Calculation
+                let flash_factor = if let Some(hit_time) = self.state.hit_times.get(&handle) {
+                    let age = time - hit_time;
+                    if age < 0.2 {
+                        (1.0 - (age / 0.2)).max(0.0) as f32
+                    } else {
+                        0.0
+                    }
+                } else {
+                    0.0
+                };
+
+                // Helper to mix white
+                let apply_flash = |c: egui::Color32, factor: f32| -> egui::Color32 {
+                    if factor <= 0.0 {
+                        return c;
+                    }
+                    let r = (c.r() as f32 * (1.0 - factor) + 255.0 * factor) as u8;
+                    let g = (c.g() as f32 * (1.0 - factor) + 255.0 * factor) as u8;
+                    let b = (c.b() as f32 * (1.0 - factor) + 255.0 * factor) as u8;
+                    egui::Color32::from_rgb(r, g, b)
+                };
 
                 // Check shape type
                 if let Some(ball) = shape.as_ball() {
@@ -325,6 +348,9 @@ impl eframe::App for PinballApp {
                     } else {
                         egui::Color32::GRAY
                     };
+
+                    let color = apply_flash(color, flash_factor);
+                    let radius = radius * (1.0 + flash_factor * 0.3);
 
                     // Glow Effect
                     let glow_color =
@@ -406,6 +432,19 @@ impl eframe::App for PinballApp {
                         egui::Color32::DARK_GRAY
                     };
 
+                    let color = apply_flash(color, flash_factor);
+                    // Pulse size for cuboids (scale points or rect) - hard for rect.
+                    // Just flash color is enough for walls.
+                    // Or expand rect?
+                    let half_extents = if flash_factor > 0.0 {
+                        vector![
+                            half_extents.x * (1.0 + flash_factor * 0.1),
+                            half_extents.y * (1.0 + flash_factor * 0.1)
+                        ]
+                    } else {
+                        half_extents
+                    };
+
                     // If no rotation, draw aligned rect
                     if angle.abs() < 0.001 {
                         let rect_min = to_screen(
@@ -476,6 +515,7 @@ impl eframe::App for PinballApp {
                     } else {
                         egui::Color32::YELLOW // Fallback
                     };
+                    let color = apply_flash(color, flash_factor);
 
                     let a = tri.a;
                     let b = tri.b;

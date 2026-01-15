@@ -62,6 +62,7 @@ pub struct GameState {
 
     // Visual Effects
     pub particles: Vec<Particle>,
+    pub hit_times: std::collections::HashMap<ColliderHandle, f64>,
 }
 
 impl GameState {
@@ -87,6 +88,7 @@ impl GameState {
             editor_drag_start: None,
             editor_grid_snap: true,
             particles: Vec::new(),
+            hit_times: std::collections::HashMap::new(),
         }
     }
 
@@ -221,7 +223,7 @@ impl GameState {
 
             self.physics.step();
             self.check_finished_balls(current_time);
-            self.handle_collisions();
+            self.handle_collisions(current_time);
             self.spawn_trails(); // NEW: Trail Effect
             self.update_particles();
         }
@@ -251,10 +253,14 @@ impl GameState {
         }
     }
 
-    fn handle_collisions(&mut self) {
+    fn handle_collisions(&mut self, current_time: f64) {
         let events = self.physics.drain_collision_events();
         for event in events {
             if let CollisionEvent::Started(h1, h2, _flags) = event {
+                // Record hit time for flashing
+                self.hit_times.insert(h1, current_time);
+                self.hit_times.insert(h2, current_time);
+
                 let c1 = self.physics.collider_set.get(h1);
                 let c2 = self.physics.collider_set.get(h2);
 
